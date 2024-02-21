@@ -1,0 +1,16 @@
+server:
+    port: ${MS_BACKEND_PORT:8090}
+
+spring:
+    webflux:
+        base-path: /api/v1/
+    main:
+        web-application-type: reactive
+    data:
+        mongodb:
+            database: ${MONGO_DB:ms-auth-db}
+            host: ${MONGO_HOST:localhost}
+            port: ${MONGO_PORT:27017}
+    jpa:
+        hibernate:
+            ddl-auto: update
