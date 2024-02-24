@@ -1,4 +1,4 @@
-package kz.azure.msauth;
+package kz.azure.ms;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
