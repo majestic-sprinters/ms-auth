@@ -1,10 +1,19 @@
 package kz.azure.ms.controller;
 
+import kz.azure.ms.model.User;
 import kz.azure.ms.model.dto.UserLoginRequest;
+import kz.azure.ms.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.ReactiveAuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.ReactiveSecurityContextHolder;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.security.core.userdetails.ReactiveUserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -18,31 +27,41 @@ import java.util.Base64;
 
 @RestController
 @RequestMapping(value = "auth")
-@RequiredArgsConstructor
 public class UserController {
-    private final ReactiveUserDetailsService userDetailsService;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final ReactiveAuthenticationManager reactiveAuthenticationManager;
 
+    public UserController(UserRepository userRepository, PasswordEncoder passwordEncoder, ReactiveAuthenticationManager reactiveAuthenticationManager) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.reactiveAuthenticationManager = reactiveAuthenticationManager;
+    }
 
     @PostMapping("/login")
     public Mono<ResponseEntity<?>> login(@RequestBody UserLoginRequest request) {
-        return userDetailsService.findByUsername(request.getUsername())
-                .map(userDetails -> {
-                    PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
-                    if (passwordEncoder.matches(request.getPassword(), userDetails.getPassword())) {
-                        String authValue = "Basic " + Base64.getEncoder().encodeToString((request.getUsername() + ":" + request.getPassword()).getBytes());
-                        HttpHeaders headers = new HttpHeaders();
-                        headers.add(HttpHeaders.AUTHORIZATION, authValue);
-                        return ResponseEntity.ok().headers(headers).body("Login Successful");
+        Authentication authentication = new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword());
+        return this.reactiveAuthenticationManager.authenticate(authentication)
+                .flatMap(authResult -> {
+                    SecurityContextImpl securityContext = new SecurityContextImpl(authResult);
+                    ReactiveSecurityContextHolder.withSecurityContext(Mono.just(securityContext));
+                    return Mono.just(authResult);
+                })
+                .cast(Authentication.class)
+                .map(auth -> {
+                    if (auth.isAuthenticated()) {
+                        return ResponseEntity.ok().body("Login Successful");
                     } else {
                         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
                     }
-                }).defaultIfEmpty(ResponseEntity.status(HttpStatus.UNAUTHORIZED).build());
+                })
+                .defaultIfEmpty(ResponseEntity.status(HttpStatus.UNAUTHORIZED).build());
     }
-
     @PostMapping("/register")
-    public Mono<ResponseEntity> register(@RequestBody UserLoginRequest request) {
-        return userDetailsService.findByUsername(request.getUsername())
-                .flatMap(user -> Mono.error(new RuntimeException("User already exists")))
-                .then(Mono.just(new ResponseEntity<>(HttpStatus.CREATED)));
+    public Mono<ResponseEntity<Object>> register(@RequestBody User user) {
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
+        return userRepository.save(user)
+                .map(u -> ResponseEntity.status(HttpStatus.CREATED).build())
+                .onErrorReturn(ResponseEntity.status(HttpStatus.BAD_REQUEST).build());
     }
 }
