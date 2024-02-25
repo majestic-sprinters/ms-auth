@@ -49,11 +49,14 @@ public class UserController {
     }
     @PostMapping("/register")
     public Mono<ResponseEntity<Object>> register(@RequestBody UserLoginRequest request) {
-        User user = new User();
-        user.setUsername(request.getUsername());
-        user.setPassword(passwordEncoder.encode(request.getPassword()));
-        return userRepository.save(user)
-                .map(u -> ResponseEntity.status(HttpStatus.CREATED).build())
-                .onErrorReturn(ResponseEntity.status(HttpStatus.BAD_REQUEST).build());
+        return userRepository.findByUsername(request.getUsername())
+                .flatMap(existingUser -> Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).build()))
+                .switchIfEmpty(Mono.defer(() -> {
+                    User newUser = new User();
+                    newUser.setUsername(request.getUsername());
+                    newUser.setPassword(passwordEncoder.encode(request.getPassword()));
+                    return userRepository.save(newUser)
+                            .then(Mono.just(ResponseEntity.status(HttpStatus.CREATED).build()));
+                }));
     }
 }
